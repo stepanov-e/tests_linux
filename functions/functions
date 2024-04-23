@@ -1,1 +1,59 @@
 
+find_string_file() {
+    local arrayLocal=("$@")
+
+    stringArgLocal="${arrayLocal[0]}"
+    filenameArgLocal="${arrayLocal[1]}"
+
+    outputMntLocal=("${arrayLocal[@]:2}")
+
+    statusFind=false
+    stringLog=""
+
+
+    if [[ "${outputMntLocal[0]}" == *"/"* ]]; then
+
+	for itemMnt in "${outputMntLocal[@]}"; do
+
+	    if [ -n "$filenameArgLocal" ]; then
+    		readarray -t outputFind < <(find $itemMnt -type f -name "$filenameArgLocal" -exec grep -l "$stringArgLocal" {} +)
+		textForLog="файлы с именем $filenameArgLocal"
+	    else
+		readarray -t outputFind < <(find $itemMnt -type f -exec grep -l "$stringArgLocal" {} +)
+		textForLog="файлы с любым именем"
+	    fi
+
+
+	    for itemFind in "${outputFind[@]}"; do
+		statusFind=true
+
+		stringLog+="$current_date_time cтрока $stringArgLocal ($textForLog) найдена в файле: $itemFind\n"
+
+		readarray -t outputString < <(grep -rn "$stringArgLocal" $itemFind)
+
+		for itemString in "${outputString[@]}"; do
+		    stringLog+=" - номер строки: ${itemString/:/ Содержимое строки: }\n"
+		done
+    	    done
+	done
+
+
+	if [ "$statusFind" = "true" ]; then
+    	    testStatus+="[PASS] $textForLog с содержимым $stringArgLocal обнаружены\n"
+	    echo "${green}[PASS]${reset} $textForLog с содержимым $stringArgLocal обнаружены"
+
+	    stringLog+="*"
+	    for element in "${stringLog[@]}"; do
+		echo -e "$element" >> "./log/files-lines.log"
+	    done
+	else
+    	    testStatus+="[FAIL] отсутствуют $textForLog с содержимым $stringArgLocal\n"
+	    echo "${red}[FAIL]${reset} отсутствуют $textForLog с содержимым $stringArgLocal"
+	fi
+
+    else
+	testStatus+="[SKIP] Устройство не обнаружено\n"
+	echo "${yellow}[SKIP]${reset} Устройство не обнаружено"
+    fi
+
+}
