@@ -1,1 +1,149 @@
+#!/bin/bash
 
+args=("$@")
+
+mkdirAndMount=false
+umountAll=false
+deleteMnt=false
+
+for arg in "${args[@]}"; do
+    if [ "$arg" = "mnt" ]; then
+        mkdirAndMount=true
+    fi
+    if [ "$arg" = "umn" ]; then
+        umountAll=true
+    fi
+    if [ "$arg" = "del" ]; then
+        deleteMnt=true
+    fi
+done
+
+current_date=$(date)
+mountedLog="\n$current_date\n"
+
+detectDrive=$(dmesg | grep -oP '\[sd.*\]\sAttached' | tail -n 1 | grep -oP '\[.*\]' | tr -d '[]')
+mountedLog+="[INFO] Обнаружено устройство - $detectDrive\n"
+
+
+while read line
+do
+    partition_lsblk_array+=("$line")
+done < <(lsblk | grep -oP "$detectDrive.*?\s")
+
+
+mountedLog+="[INFO] Все устройства $detectDrive:\n"
+for item in "${partition_lsblk_array[@]}"; do
+    mountedLog+="- $item\n"
+done
+
+
+
+if ((${#partition_lsblk_array[@]} == 0)); then
+    mountedLog+="[WARNING] Устройство не обнаружено или было извлечено\n"
+elif ((${#partition_lsblk_array[@]} == 1)); then
+    allPartitionDrive=("${partition_lsblk_array[0]}")
+    mountedLog+="[INFO] Устройство отформатировано без таблицы разделов\n"
+
+    checkMounted=$(lsblk | grep "$allPartitionDrive\s.*\/")
+
+    if [ -n "$checkMounted" ] && [ "$mkdirAndMount" = true ]; then
+	echo $checkMounted | grep -oP "/.*"
+	mountedLog+="Устройство $allPartitionDrive было примонтировано ранее\n"
+	checkMountedStatus=true
+    fi
+
+else
+    for ((i = 1; i < ${#partition_lsblk_array[@]}; i++)); do
+	allPartitionDrive+=("${partition_lsblk_array[i]}")
+    done
+    mountedLog+="[INFO] Устройство содержит следующие разделы:\n"
+    for item in "${allPartitionDrive[@]}"; do
+        mountedLog+="- $item\n"
+
+	checkMounted=$(lsblk | grep "$item\s.*\/")
+
+	if [ -n "$checkMounted" ] && [ "$mkdirAndMount" = true ]; then
+	    echo $checkMounted | grep -oP "/.*"
+	    mountedLog+="Устройство $item было примонтировано ранее\n"
+	    checkMountedStatus=true
+	fi
+
+    done
+fi
+
+
+if [ "$checkMountedStatus" = true ]; then
+    mkdirAndMount=false
+fi
+
+
+
+if [ "$mkdirAndMount" = true ]; then
+    for item in "${allPartitionDrive[@]}"; do
+        output=$(mkdir /mnt/"$item" 2>&1)
+        output2=$(mount /dev/"$item" /mnt/"$item" 2>&1)
+
+        if [[ -n "$output" ]]; then
+            outputLogMkdir+="- $output\n"
+	fi
+        if [[ -n "$output2" ]]; then
+            outputLogMount+="- $output2\n"
+	else
+	    mountedLog+="Устройство $item успешно примонтировано\n"
+	    echo "/mnt/$item"
+        fi
+    done
+
+    if [[ -n "$outputLogMkdir" ]]; then
+        mountedLog+="[WARNING] В процессе создания директорий в /mnt возникли следующие ошибки:\n"
+        mountedLog+="$outputLogMkdir"
+    fi
+
+    if [[ -n "$outputLogMount" ]]; then
+        mountedLog+="[WARNING] В процессе выполнения монтирования разделов возникли следующие ошибки:\n"
+        mountedLog+="$outputLogMount"
+    fi
+fi
+
+
+
+if [ "$umountAll" = true ]; then
+    for item in "${allPartitionDrive[@]}"; do
+        output=$(umount /dev/"$item" 2>&1)
+
+        if [[ -n "$output" ]]; then
+            outputLogUmount+="- $output\n"
+        fi
+    done
+
+    if [[ -n "$outputLogUmount" ]]; then
+        mountedLog+="[WARNING] В процессе размонтирования разделов возникли следующие ошибки:\n"
+        mountedLog+="$outputLogUmount"
+    fi
+fi
+
+
+
+if [ "$deleteMnt" = true ]; then
+    for item in "${allPartitionDrive[@]}"; do
+	checkMountedPartition=$(lsblk | grep $item | grep -oP 'mnt')
+
+	if [ "$checkMountedPartition" == "mnt" ]; then
+            mountedLog+="[WARNING] Устройство /dev/$item примонтировано, директория /mnt/$item не будет удалена\n"
+	else
+	    output=$(rm -r /mnt/"$item" 2>&1)
+
+	    if [[ -n "$output" ]]; then
+                outputLogRmMnt+="- $output\n"
+            fi
+	fi
+    done
+
+    if [[ -n "$outputLogRmMnt" ]]; then
+        mountedLog+="[WARNING] В процессе удаления директорий из /mnt возникли следующие ошибки:\n"
+        mountedLog+="$outputLogRmMnt"
+    fi
+fi
+
+cd "$(dirname "$0")/.."
+echo -e $mountedLog >> ./log/mount.log
