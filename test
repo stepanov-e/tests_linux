@@ -1,0 +1,166 @@
+#!/bin/bash
+
+if [ "$EUID" -ne 0 ]; then
+    echo "Запуск возможен только с правами root пользователя"
+    exit 1
+fi
+
+
+reset=$(tput sgr0)
+
+red=$(tput setaf 1)
+green=$(tput setaf 2)
+yellow=$(tput setaf 3)
+blue=$(tput setaf 4)
+purple=$(tput setaf 5)
+cyan=$(tput setaf 6)
+white=$(tput setaf 7)
+
+
+current_user="$USER"
+current_date_time=$(date +"%Y-%m-%d %H:%M:%S")
+cd "$(dirname "$0")"
+chmod +x ./drivedetect/mount_drive
+mkdir -p ./log
+testStatus="$current_date_time - тесты запущены из файла $PWD/$1\n"
+
+source "./functions/functions"
+
+
+
+if [ $# -ne 1 ]; then
+    echo "${yellow}: warning :${reset} Передайте путь к файлу с тестами: $0 <test_file>"
+    exit 1
+fi
+
+if [ ! -f "$1" ]; then
+    echo "${yellow}: warning :${reset} Файл $1 не найден"
+    exit 1
+fi
+
+
+
+while read -r test_with_args || [ -n "$test_with_args" ]; do
+    test_name=$(echo "$test_with_args" | awk '{print $1}')
+    test_args=$(echo "$test_with_args" | awk '{print $2}')
+    second_arg=$(echo "$test_with_args" | awk '{print $3}')
+
+    case "$test_name" in
+
+	"check_status_service")
+	    if [ -z "$test_args" ]; then
+                echo "${yellow}[SKIP]${reset} для теста check_status_service название сервиса не указано"
+		testStatus+="[SKIP] для теста check_status_service название сервиса не указано\n"
+            else
+		if systemctl is-active --quiet "$test_args"; then
+            	    echo "${green}[PASS]${reset} сервис $test_args запущен"
+		     testStatus+="[PASS] сервис $test_args запущен\n"
+        	else
+            	    echo "${red}[FAIL]${reset} сервис $test_args не запущен"
+		    testStatus+="[FAIL] сервис $test_args не запущен\n"
+        	fi
+	    fi
+	    ;;
+
+	"check_user_exist")
+	    if [ -z "$test_args" ]; then
+                echo "${yellow}[SKIP]${reset} для теста check_user_exist имя пользователя не указано"
+		testStatus+="[SKIP] для теста check_user_exist имя пользователя не указано\n"
+            else
+                if id "$test_args" &>/dev/null; then
+                    echo "${green}[PASS]${reset} пользователь $test_args есть в системе"
+		    testStatus+="[PASS] пользователь $test_args есть в системе\n"
+                else
+                    echo "${red}[FAIL]${reset} пользователь $test_args отсутствует"
+		    testStatus+="[FAIL] пользователь $test_args отсутствует\n"
+                fi
+            fi
+	    ;;
+	"check_packet_exist")
+	    if [ -z "$test_args" ]; then
+                echo "${yellow}[SKIP]${reset} для теста check_packet_exist название пакета не указано"
+		testStatus+="[SKIP] для теста check_packet_exist название пакета не указано\n"
+            else
+		if command -v dpkg &>/dev/null; then
+		    if dpkg -l | grep -wq "$test_args"; then
+		        echo "${green}[PASS]${reset} пакет $test_args установлен"
+			testStatus+="[PASS] пакет $test_args установлен\n"
+		    else
+    			echo "${red}[FAIL]${reset} пакет $test_args не установлен"
+			testStatus+="[FAIL] пакет $test_args не установлен\n"
+		    fi
+		elif command -v rpm &>/dev/null; then
+		    if rpm -q $test_args &>/dev/null; then
+			echo "${green}[PASS]${reset} пакет $test_args установлен"
+			testStatus+="[PASS] пакет $test_args установлен\n"
+		    else
+			echo "${red}[FAIL]${reset} пакет $test_args не установлен"
+			testStatus+="[FAIL] пакет $test_args не установлен\n"
+		    fi
+		else
+		    echo "${yellow}[SKIP]${reset} Не удалось определить систему управления пакетами"
+		    testStatus+="[SKIP] Не удалось определить систему управления пакетами\n"
+		fi
+	    fi
+	    ;;
+	"check_file_exist")
+	    if [ -z "$test_args" ]; then
+                echo "${yellow}[SKIP]${reset} для теста check_file_exist путь к файлу не указан"
+		testStatus+="[SKIP] для теста check_file_exist путь к файлу не указан\n"
+            else
+		if [ -f "$test_args" ]; then
+		    echo "${green}[PASS]${reset} файл $test_args существует"
+		    testStatus+="[PASS] файл $test_args существует\n"
+		else
+		    echo "${red}[FAIL]${reset} файл $test_args не найден"
+		    testStatus+="[FAIL] файл $test_args не найден\n"
+		fi
+	    fi
+	    ;;
+	"check_string_drive")
+	    if [ -z "$test_args" ]; then
+                echo "${yellow}[SKIP]${reset} для теста check_string_drive не передана строка поиска"
+		testStatus+="[SKIP] для теста check_string_drive не передана строка поиска\n"
+	    else
+		readarray -t outputMnt <<<"$(bash "./drivedetect/mount_drive" mnt)"
+
+		find_string_file "$test_args" "$second_arg" "${outputMnt[@]}"
+
+		bash "./drivedetect/mount_drive" umn del
+	    fi
+	    ;;
+	"wait")
+	    if [ -z "$test_args" ]; then
+                waitSecond=5
+            else
+		waitSecond=$test_args
+	    fi
+
+	    echo "${cyan}[INFO]${reset} Ожидание $waitSecond секунд..."
+
+	    for ((i=$waitSecond; i>=1; i--))
+	        do
+	        echo -n "Осталось $i секунд"
+		sleep 1
+	        echo -ne "\r     \r"
+	    done
+
+	    echo "${cyan}[INFO]${reset} Прошло $waitSecond секунд, продолжаем выполнение скрипта."
+	    ;;
+	"line")
+	    echo "---------------------------------"
+	    testStatus+="---------------------------------\n"
+	    ;;
+	*)
+	    echo "${yellow}[SKIP]${reset} неизвестный тест: $test_name"
+	    testStatus+="[SKIP] неизвестный тест: $test_name\n"
+	    ;;
+    esac
+done < "$1"
+
+testStatus+="$current_date_time - окончание выполения тестов\n\n"
+
+echo -e $testStatus >> ./log/all-tests-status.log
+
+chown -R $current_user:$current_user ./log
+echo "${cyan}[INFO]${reset} Подробная информация в $PWD/log/"

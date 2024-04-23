@@ -1,0 +1,25 @@
+check_status_service cron
+check_status_service nginx
+check_status_service
+line
+check_user_exist evgenii
+check_user_exist username
+check_user_exist
+line
+check_packet_exist tar
+check_packet_exist postgres
+check_packet_exist
+line
+check_file_exist /etc/hosts
+check_file_exist /etc/nofilename
+check_file_exist
+line
+wait 7
+check_string_drive CFG_TEST somefile
+check_string_drive CFG_TEST
+check_string_drive loremipsum
+check_string_drive
+line
+
+unknown_test_name
+line
